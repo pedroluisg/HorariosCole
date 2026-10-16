@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: gestor-horarios-colegio
+    env: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app_horarios.py --server.port $PORT --server.address 0.0.0.0
