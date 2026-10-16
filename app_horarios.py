@@ -25,6 +25,7 @@ def cargar_datos():
         "horarios_esp": {}
     }
 
+
 def guardar_datos(datos):
     with open(ARCHIVO_DATOS, "w", encoding="utf-8") as f:
         json.dump(datos, f, ensure_ascii=False, indent=4)
