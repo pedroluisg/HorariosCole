@@ -1,8 +1,2 @@
-<<<<<<< HEAD
-streamlit==1.32.0
-pandas==2.2.1
-openpyxl==3.1.2
-=======
 streamlit==1.32.0
 openpyxl==3.1.2
->>>>>>> f4fc9c0da509fbfb3a2802f3c44600db0860388c
