@@ -66,7 +66,7 @@ st.markdown("""
     <style>
     .main-header { font-size: 26px; font-weight: 700; color: #1F4E79; margin-bottom: 10px; }
     .sub-header { font-size: 19px; font-weight: 600; color: #2F5597; margin-top: 15px; margin-bottom: 10px; }
-    .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; height: 46px; }
+    .stButton>button, .stDownloadButton>button { width: 100%; border-radius: 8px; font-weight: 600; height: 46px; }
     .tabla-horario { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 20px; font-family: sans-serif; font-size: 14px; }
     .tabla-horario th { background-color: #1F4E79; color: white; padding: 10px; text-align: center; border: 1px solid #cbd5e1; width: 16%; }
     .tabla-horario td { padding: 10px; text-align: center; border: 1px solid #cbd5e1; background-color: #ffffff; color: #1e293b; }
@@ -173,7 +173,6 @@ def autogenerar_cuadrante():
             else:
                 dias_validos = DIAS
 
-            # Ordenar franjas de mañana según la prioridad del especialista
             franjas_m_base = franjas_m_inf if es_inf else franjas_m_pri
             franjas_m = ordenar_franjas_por_prioridad(franjas_m_base, prio_franja)
 
@@ -189,7 +188,6 @@ def autogenerar_cuadrante():
                             datos["horarios_tutor"][nom_aula][f][d] = "PENDIENTE_ASIGNAR"
                             colocadas_m += 1
 
-            # Sesiones de tarde (respetando también prioridad si aplica)
             if not es_inf and ses_t > 0:
                 franjas_t = ordenar_franjas_por_prioridad(franjas_t_pri, prio_franja)
                 colocadas_t = 0
@@ -204,7 +202,6 @@ def autogenerar_cuadrante():
                                 datos["horarios_tutor"][nom_aula][f][d] = "PENDIENTE_ASIGNAR"
                                 colocadas_t += 1
 
-    # Asignar libranzas de Tutores (Planificación, Coordinación + Horas de Proyectos/Cargos)
     for a in datos["aulas"]:
         nom_aula = a["aula"]
         ciclo_actual = a.get("ciclo", "Primaria")
@@ -236,7 +233,6 @@ def autogenerar_cuadrante():
                     else:
                         datos["horarios_tutor"][nom_aula][f][d] = f"APOYO / REFUERZO en {aula_refuerzo}"
 
-    # Asignar libranzas de Especialistas (Planificación, Coordinación + Horas de Proyectos/Cargos)
     for e in datos["especialistas"]:
         id_esp = f"{e['nombre']} ({e['area']})"
         matriz = datos["horarios_esp"].get(id_esp, {})
@@ -284,6 +280,61 @@ def renderizar_tabla_html(matriz, tutor_base=""):
             html += '</tr>'
     html += '</tbody></table>'
     return html
+
+def generar_documento_imprimible():
+    html_doc = """<!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Horarios Completos del Centro - Palantir School</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; color: #1e293b; }
+            h1 { color: #1F4E79; text-align: center; margin-bottom: 5px; }
+            h2 { color: #1F4E79; border-bottom: 2px solid #1F4E79; padding-bottom: 4px; margin-top: 20px; font-size: 18px; }
+            h3 { color: #2F5597; margin-top: 14px; margin-bottom: 6px; font-size: 15px; }
+            .btn-print { display: block; margin: 15px auto; padding: 12px 24px; background: #1F4E79; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; }
+            .tabla-horario { width: 100%; border-collapse: collapse; margin-top: 6px; margin-bottom: 16px; font-size: 12px; }
+            .tabla-horario th { background-color: #1F4E79 !important; color: white !important; padding: 8px; text-align: center; border: 1px solid #94a3b8; width: 16%; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .tabla-horario td { padding: 8px; text-align: center; border: 1px solid #94a3b8; background-color: #ffffff; }
+            .celda-esp { background-color: #e0f2fe !important; font-weight: bold; color: #0369a1 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .celda-apoyo { background-color: #fef3c7 !important; font-weight: bold; color: #b45309 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .celda-libre { background-color: #dcfce7 !important; font-weight: bold; color: #15803d !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .recreo-row td { background-color: #f1f5f9 !important; font-weight: bold; color: #64748b !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .page-break { page-break-after: always; }
+            @media print { .no-print { display: none; } }
+        </style>
+    </head>
+    <body onload="window.print()">
+        <div class="no-print">
+            <button class="btn-print" onclick="window.print()">🖨️ Imprimir o Guardar como PDF ahora</button>
+        </div>
+        <h1>📅 Cuadrante General de Horarios del Centro</h1>
+    """
+
+    for a in datos["aulas"]:
+        nom_aula = a["aula"]
+        tutor_nom = a["tutor"]
+        matriz_aula = datos["horarios_aula"].get(nom_aula, {})
+        matriz_tut = datos["horarios_tutor"].get(nom_aula, {})
+
+        html_doc += '<div class="page-break">'
+        html_doc += f'<h2>🏫 Aula: {nom_aula} ({a.get("nivel", "")})</h2>'
+        html_doc += f'<h3>Horario del Grupo (Profesionales en el aula)</h3>'
+        html_doc += renderizar_tabla_html(matriz_aula, tutor_base=tutor_nom)
+        html_doc += f'<h3>👤 Horario Individual del Tutor: {tutor_nom}</h3>'
+        html_doc += renderizar_tabla_html(matriz_tut, tutor_base=tutor_nom)
+        html_doc += '</div>'
+
+    for e in datos["especialistas"]:
+        id_esp = f"{e['nombre']} ({e['area']})"
+        matriz_e = datos["horarios_esp"].get(id_esp, {})
+        html_doc += '<div class="page-break">'
+        html_doc += f'<h2>👤 Especialista / Apoyo: {id_esp}</h2>'
+        html_doc += renderizar_tabla_html(matriz_e, tutor_base="Disponible / Apoyo")
+        html_doc += '</div>'
+
+    html_doc += "</body></html>"
+    return html_doc
 
 # ==========================================
 # PANTALLA 1: CONFIGURACIÓN INICIAL
@@ -410,7 +461,7 @@ if not datos["config_guardada"]:
 # PANTALLA 2: PANEL DE HORARIOS (CUADRÍCULA 3xN)
 # ==========================================
 else:
-    c_top1, c_top2, c_top3 = st.columns([0.55, 0.25, 0.20])
+    c_top1, c_top2, c_top3, c_top4 = st.columns([0.40, 0.22, 0.20, 0.18])
     with c_top1:
         st.markdown('<div class="main-header">📅 Panel de Horarios - Sistema Palantir</div>', unsafe_allow_html=True)
     with c_top2:
@@ -419,6 +470,13 @@ else:
             st.toast("Horarios generados aplicando cursos, franjas prioritarias y libranzas de proyectos", icon="✅")
             st.rerun()
     with c_top3:
+        st.download_button(
+            label="🖨️ Imprimir Todos",
+            data=generar_documento_imprimible(),
+            file_name="Horarios_Completos_Imprimir.html",
+            mime="text/html"
+        )
+    with c_top4:
         if st.button("⚙️ Configurar Personal/Aulas"):
             datos["config_guardada"] = False
             st.session_state.vista_detalle = None
