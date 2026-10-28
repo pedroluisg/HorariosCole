@@ -9,6 +9,29 @@ DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 FRANJAS_PRIMARIA = ["9:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00", "12:00 - 12:30 (Recreo)", "12:30 - 13:15", "13:15 - 14:00"]
 FRANJAS_INFANTIL = ["9:00 - 10:00", "10:00 - 11:00", "11:00 - 11:30 (Almuerzo)", "11:30 - 12:00 (Recreo)", "12:00 - 12:30", "12:30 - 13:15", "13:15 - 14:00"]
 
+LISTA_CURSOS = [
+    "Infantil 3 Años", "Infantil 4 Años", "Infantil 5 Años",
+    "1º Primaria", "2º Primaria", "3º Primaria", "4º Primaria", "5º Primaria", "6º Primaria"
+]
+
+LISTA_PROYECTOS = [
+    "Coordinador/a de Ciclo",
+    "Coord. Plan Lector / Biblioteca",
+    "Coord. Competencia Digital (TIC)",
+    "Coord. Igualdad y Convivencia",
+    "Coord. Salud / Deporte Escolar",
+    "Coord. Bilingüismo / Proyectos Europeos",
+    "Equipo Directivo / Otra Libranza"
+]
+
+OPCIONES_FRANJA_PRIORITARIA = [
+    "Sin preferencia (Automático)",
+    "1ª Franja Mañana (9:00 - 11:00)",
+    "Mañana Completa (9:00 - 12:00)",
+    "Última de la Mañana (11:00 - 12:00)",
+    "Tarde (12:30 - 14:00)"
+]
+
 # ==========================================
 # GESTIÓN DE PERSISTENCIA EN DISCO (JSON)
 # ==========================================
@@ -85,17 +108,29 @@ def inicializar_matrices_base():
             else:
                 datos["horarios_esp"][id_esp][f] = {d: "Disponible / Apoyo" for d in DIAS}
 
-def buscar_especialista(area_buscada, nivel_aula):
-    es_inf = "Infantil" in nivel_aula or "1º Primaria" in nivel_aula
+def buscar_especialista_obj(area_buscada, nivel_aula):
     candidatos = [e for e in datos["especialistas"] if e["area"] == area_buscada]
     if not candidatos:
         return None
     for c in candidatos:
-        if es_inf and c.get("etapa") in ["Infantil y 1º Primaria", "Todas las etapas"]:
-            return f"{c['nombre']} ({c['area']})"
-        if not es_inf and c.get("etapa") in ["Primaria (2º a 6º)", "Todas las etapas"]:
-            return f"{c['nombre']} ({c['area']})"
-    return f"{candidatos[0]['nombre']} ({candidatos[0]['area']})"
+        cursos_pref = c.get("cursos", ["Todos los cursos"])
+        if "Todos los cursos" in cursos_pref or nivel_aula in cursos_pref:
+            return c
+    return candidatos[0]
+
+def ordenar_franjas_por_prioridad(franjas_base, prioridad):
+    if prioridad == "1ª Franja Mañana (9:00 - 11:00)":
+        pref = [f for f in franjas_base if f in ["9:00 - 10:00", "10:00 - 11:00"]]
+    elif prioridad == "Última de la Mañana (11:00 - 12:00)":
+        pref = [f for f in franjas_base if f == "11:00 - 12:00"]
+    elif prioridad == "Mañana Completa (9:00 - 12:00)":
+        pref = [f for f in franjas_base if f in ["9:00 - 10:00", "10:00 - 11:00", "11:00 - 12:00"]]
+    elif prioridad == "Tarde (12:30 - 14:00)":
+        pref = [f for f in franjas_base if f in ["12:30 - 13:15", "13:15 - 14:00"]]
+    else:
+        pref = []
+    resto = [f for f in franjas_base if f not in pref]
+    return pref + resto
 
 def autogenerar_cuadrante():
     inicializar_matrices_base()
@@ -124,9 +159,11 @@ def autogenerar_cuadrante():
         requisitos = carga_por_nivel.get(nivel, [])
 
         for area, ses_m, ses_t in requisitos:
-            id_esp = buscar_especialista(area, nivel)
-            if not id_esp:
+            esp_obj = buscar_especialista_obj(area, nivel)
+            if not esp_obj:
                 continue
+            id_esp = f"{esp_obj['nombre']} ({esp_obj['area']})"
+            prio_franja = esp_obj.get("franja_prioritaria", "Sin preferencia (Automático)")
 
             if nivel == "2º Primaria":
                 if area == "Inglés":
@@ -136,10 +173,13 @@ def autogenerar_cuadrante():
             else:
                 dias_validos = DIAS
 
-            franjas_m = franjas_m_inf if es_inf else franjas_m_pri
+            # Ordenar franjas de mañana según la prioridad del especialista
+            franjas_m_base = franjas_m_inf if es_inf else franjas_m_pri
+            franjas_m = ordenar_franjas_por_prioridad(franjas_m_base, prio_franja)
+
             colocadas_m = 0
-            for d in dias_validos:
-                for f in franjas_m:
+            for f in franjas_m:
+                for d in dias_validos:
                     if colocadas_m < ses_m:
                         aula_libre = (datos["horarios_aula"][nom_aula][f][d] == tutor)
                         esp_libre = (datos["horarios_esp"][id_esp][f][d] == "Disponible / Apoyo")
@@ -149,10 +189,12 @@ def autogenerar_cuadrante():
                             datos["horarios_tutor"][nom_aula][f][d] = "PENDIENTE_ASIGNAR"
                             colocadas_m += 1
 
+            # Sesiones de tarde (respetando también prioridad si aplica)
             if not es_inf and ses_t > 0:
+                franjas_t = ordenar_franjas_por_prioridad(franjas_t_pri, prio_franja)
                 colocadas_t = 0
-                for d in dias_validos:
-                    for f in franjas_t_pri:
+                for f in franjas_t:
+                    for d in dias_validos:
                         if colocadas_t < ses_t:
                             aula_libre = (datos["horarios_aula"][nom_aula][f][d] == tutor)
                             esp_libre = (datos["horarios_esp"][id_esp][f][d] == "Disponible / Apoyo")
@@ -162,17 +204,22 @@ def autogenerar_cuadrante():
                                 datos["horarios_tutor"][nom_aula][f][d] = "PENDIENTE_ASIGNAR"
                                 colocadas_t += 1
 
+    # Asignar libranzas de Tutores (Planificación, Coordinación + Horas de Proyectos/Cargos)
     for a in datos["aulas"]:
         nom_aula = a["aula"]
         ciclo_actual = a.get("ciclo", "Primaria")
-        es_coord = a.get("coord", False)
+        proyectos_tutor = a.get("proyectos", [])
+        if not proyectos_tutor and a.get("coord"):
+            proyectos_tutor = ["Coordinador/a de Ciclo"]
+        horas_proy_max = a.get("horas_proyectos", 1 if a.get("coord") else 0)
+        etiqueta_proy = ", ".join(proyectos_tutor) if proyectos_tutor else "Proyecto/Cargo"
 
         companeros = [x["aula"] for x in datos["aulas"] if x.get("ciclo") == ciclo_actual and x["aula"] != nom_aula]
         aula_refuerzo = companeros[0] if companeros else "Su Ciclo"
 
         h_plan = 0
         h_coord = 0
-        h_coord_ciclo = 0
+        h_proy = 0
 
         for f, dias_dict in datos["horarios_tutor"][nom_aula].items():
             for d in DIAS:
@@ -183,14 +230,21 @@ def autogenerar_cuadrante():
                     elif h_coord < 1:
                         datos["horarios_tutor"][nom_aula][f][d] = "LIBRE: Coordinación"
                         h_coord += 1
-                    elif es_coord and h_coord_ciclo < 1:
-                        datos["horarios_tutor"][nom_aula][f][d] = "LIBRE: Coord. de Ciclo (3ª h)"
-                        h_coord_ciclo += 1
+                    elif h_proy < horas_proy_max:
+                        datos["horarios_tutor"][nom_aula][f][d] = f"LIBRE: {etiqueta_proy}"
+                        h_proy += 1
                     else:
                         datos["horarios_tutor"][nom_aula][f][d] = f"APOYO / REFUERZO en {aula_refuerzo}"
 
-    for id_esp, matriz in datos["horarios_esp"].items():
-        h_p, h_c = 0, 0
+    # Asignar libranzas de Especialistas (Planificación, Coordinación + Horas de Proyectos/Cargos)
+    for e in datos["especialistas"]:
+        id_esp = f"{e['nombre']} ({e['area']})"
+        matriz = datos["horarios_esp"].get(id_esp, {})
+        proyectos_esp = e.get("proyectos", [])
+        horas_proy_esp = e.get("horas_proyectos", 0)
+        etiqueta_proy_esp = ", ".join(proyectos_esp) if proyectos_esp else "Proyecto/Cargo"
+
+        h_p, h_c, h_pr = 0, 0, 0
         for f, dias_dict in matriz.items():
             for d in DIAS:
                 if dias_dict[d] == "Disponible / Apoyo":
@@ -200,6 +254,9 @@ def autogenerar_cuadrante():
                     elif h_c < 1:
                         datos["horarios_esp"][id_esp][f][d] = "LIBRE: Coordinación"
                         h_c += 1
+                    elif h_pr < horas_proy_esp:
+                        datos["horarios_esp"][id_esp][f][d] = f"LIBRE: {etiqueta_proy_esp}"
+                        h_pr += 1
 
     guardar_datos(datos)
 
@@ -233,23 +290,26 @@ def renderizar_tabla_html(matriz, tutor_base=""):
 # ==========================================
 if not datos["config_guardada"]:
     st.markdown('<div class="main-header">⚙️ Configuración Inicial del Centro (Modo Anónimo)</div>', unsafe_allow_html=True)
-    st.write("Registra las aulas con sus tutores y los especialistas del centro. La configuración permanece estable y guardada.")
+    st.write("Registra las aulas con sus tutores, coordinaciones de proyectos y especialistas con sus cursos y franjas prioritarias.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown('<div class="sub-header">🏫 1. Aulas y Tutores</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">🏫 1. Aulas, Tutores y Coordinaciones</div>', unsafe_allow_html=True)
         with st.container():
             c1, c2 = st.columns(2)
-            nivel_sel = c1.selectbox("Nivel normativo del Aula:", [
-                "Infantil 3 Años", "Infantil 4 Años", "Infantil 5 Años",
-                "1º Primaria", "2º Primaria", "3º Primaria", "4º Primaria", "5º Primaria", "6º Primaria"
-            ])
-            nom_aula = c2.text_input("Nombre/Alias del Aula (ej. Aula 1ºA, 3 Años):", value=nivel_sel)
+            nivel_sel = c1.selectbox("Curso / Nivel del Aula:", LISTA_CURSOS)
+            nom_aula = c2.text_input("Nombre/Alias del Aula (ej. 1ºA, 3 Años):", value=nivel_sel)
 
-            c3, c4 = st.columns(2)
-            nom_tutor = c3.text_input("Identificador Anónimo del Tutor (ej. Tutor 1, Docente A):")
-            es_coord = c4.checkbox("¿Coordinador de Ciclo? (Libra 3ª hora)")
+            nom_tutor = st.text_input("Identificador del Tutor (ej. Tutor 1, Docente A):")
+
+            c3, c4 = st.columns([0.65, 0.35])
+            proy_tutor = c3.multiselect("Coordinaciones / Proyectos (Generan libranza):", LISTA_PROYECTOS, key="proy_tut")
+            horas_lib_tutor = c4.number_input(
+                "Horas extra libranza:", min_value=0, max_value=10,
+                value=1 if proy_tutor else 0,
+                help="Horas adicionales a las 2h base de Planificación y Coordinación"
+            )
 
             if st.button("➕ Registrar Aula y Tutor"):
                 if nom_aula and nom_tutor:
@@ -258,41 +318,78 @@ if not datos["config_guardada"]:
                     elif nivel_sel in ["3º Primaria", "4º Primaria"]: ciclo = "2º Ciclo Primaria"
                     else: ciclo = "3º Ciclo Primaria"
 
-                    datos["aulas"].append({"aula": nom_aula, "tutor": nom_tutor, "nivel": nivel_sel, "ciclo": ciclo, "coord": es_coord})
+                    datos["aulas"].append({
+                        "aula": nom_aula,
+                        "tutor": nom_tutor,
+                        "nivel": nivel_sel,
+                        "ciclo": ciclo,
+                        "proyectos": proy_tutor,
+                        "horas_proyectos": horas_lib_tutor,
+                        "coord": ("Coordinador/a de Ciclo" in proy_tutor)
+                    })
                     guardar_datos(datos)
                     st.rerun()
 
         for i, a in enumerate(datos["aulas"]):
             ca, cb = st.columns([0.85, 0.15])
-            tag_c = " ⭐ (Coord. 3h)" if a.get("coord") else " (2h libres)"
-            ca.write(f"• **{a['aula']}** [{a.get('nivel', '')}] — Tutor: `{a['tutor']}`{tag_c}")
+            proys = a.get("proyectos", ["Coord. Ciclo"] if a.get("coord") else [])
+            h_ext = a.get("horas_proyectos", 1 if a.get("coord") else 0)
+            txt_proy = f" | ⭐ {', '.join(proys)} (+{h_ext}h lib.)" if proys else " | (2h base)"
+            ca.write(f"• **{a['aula']}** [{a.get('nivel', '')}] — Tutor: `{a['tutor']}`{txt_proy}")
             if cb.button("❌", key=f"del_a_{i}"):
                 datos["aulas"].pop(i)
                 guardar_datos(datos)
                 st.rerun()
 
     with col2:
-        st.markdown('<div class="sub-header">👥 2. Especialistas y Apoyos</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">👥 2. Especialistas, Cursos y Franja Prioritaria</div>', unsafe_allow_html=True)
         with st.container():
             ce1, ce2 = st.columns(2)
-            nom_esp = ce1.text_input("Identificador Anónimo (ej. Esp. Inglés 1, EF 1):")
+            nom_esp = ce1.text_input("Identificador Especialista (ej. Esp. Inglés 1, EF 1):")
             area_esp = ce2.selectbox("Especialidad:", [
                 "Inglés", "Educación Física (EF)", "Música / Artística", "Religión",
                 "PT (Pedagogía Terapéutica)", "AL (Audición y Lenguaje)", "PROA+ / Apoyo", "Apoyo Infantil"
             ])
-            etapa_esp = st.selectbox("Etapa preferente que atiende:", [
-                "Todas las etapas", "Infantil y 1º Primaria", "Primaria (2º a 6º)"
-            ])
+
+            cursos_esp = st.multiselect(
+                "Cursos preferentes que atiende:",
+                ["Todos los cursos"] + LISTA_CURSOS,
+                default=["Todos los cursos"]
+            )
+
+            franja_prio = st.selectbox(
+                "Franja horaria prioritaria para sus clases:",
+                OPCIONES_FRANJA_PRIORITARIA
+            )
+
+            ce3, ce4 = st.columns([0.65, 0.35])
+            proy_esp = ce3.multiselect("Coordinaciones / Proyectos del Especialista:", LISTA_PROYECTOS, key="proy_esp")
+            horas_lib_esp = ce4.number_input(
+                "Horas extra libranza (Esp.):", min_value=0, max_value=10,
+                value=1 if proy_esp else 0
+            )
 
             if st.button("➕ Registrar Especialista"):
                 if nom_esp:
-                    datos["especialistas"].append({"nombre": nom_esp, "area": area_esp, "etapa": etapa_esp})
+                    datos["especialistas"].append({
+                        "nombre": nom_esp,
+                        "area": area_esp,
+                        "cursos": cursos_esp if cursos_esp else ["Todos los cursos"],
+                        "franja_prioritaria": franja_prio,
+                        "proyectos": proy_esp,
+                        "horas_proyectos": horas_lib_esp
+                    })
                     guardar_datos(datos)
                     st.rerun()
 
         for i, e in enumerate(datos["especialistas"]):
             ca, cb = st.columns([0.85, 0.15])
-            ca.write(f"• **{e['nombre']}** — `{e['area']}` ({e.get('etapa', 'Todas')})")
+            cursos_txt = ", ".join(e.get("cursos", [e.get("etapa", "Todos")]))
+            franja_txt = e.get("franja_prioritaria", "Sin preferencia")
+            proys_e = e.get("proyectos", [])
+            h_ext_e = e.get("horas_proyectos", 0)
+            txt_proy_e = f" | ⭐ {', '.join(proys_e)} (+{h_ext_e}h)" if proys_e else ""
+            ca.write(f"• **{e['nombre']}** (`{e['area']}`) — Cursos: *{cursos_txt}* | Prioridad: `{franja_txt}`{txt_proy_e}")
             if cb.button("❌", key=f"del_e_{i}"):
                 datos["especialistas"].pop(i)
                 guardar_datos(datos)
@@ -319,7 +416,7 @@ else:
     with c_top2:
         if st.button("⚡ Autogenerar Cuadrante Completo", type="primary"):
             autogenerar_cuadrante()
-            st.toast("Horarios generados cumpliendo la Orden de Cantabria", icon="✅")
+            st.toast("Horarios generados aplicando cursos, franjas prioritarias y libranzas de proyectos", icon="✅")
             st.rerun()
     with c_top3:
         if st.button("⚙️ Configurar Personal/Aulas"):
@@ -346,7 +443,7 @@ else:
             st.markdown(renderizar_tabla_html(matriz_aula, tutor_base=tutor_nom), unsafe_allow_html=True)
 
             st.markdown(f'<div class="sub-header">👤 Horario Individual del Tutor: {tutor_nom}</div>', unsafe_allow_html=True)
-            st.caption("Cuando entra un especialista a su aula, el tutor realiza Planificación, Coordinación o acude a Reforzar otra clase de su mismo ciclo.")
+            st.caption("Incluye sus horas de Planificación, Coordinación, Libranzas por Proyectos y Apoyo/Refuerzo en su ciclo.")
             matriz_tut = datos["horarios_tutor"].get(sel, {})
             st.markdown(renderizar_tabla_html(matriz_tut, tutor_base=tutor_nom), unsafe_allow_html=True)
 
@@ -365,7 +462,7 @@ else:
 
         elif tipo == "ESP":
             st.markdown(f'<div class="sub-header">👤 Horario del Especialista / Apoyo: {sel}</div>', unsafe_allow_html=True)
-            st.caption("Indica en qué aula imparte docencia en cada sesión, sus horas de liberación (Planificación/Coordinación) y horas disponibles de apoyo.")
+            st.caption("Indica en qué aula imparte docencia, sus horas de liberación (Planificación/Coordinación/Proyectos) y horas disponibles de apoyo.")
             matriz_e = datos["horarios_esp"].get(sel, {})
             st.markdown(renderizar_tabla_html(matriz_e, tutor_base="Disponible / Apoyo"), unsafe_allow_html=True)
 
@@ -373,7 +470,7 @@ else:
                 col_a, col_b, col_c = st.columns(3)
                 f_mod = col_a.selectbox("Franja:", [f for f in matriz_e.keys() if "Recreo" not in f])
                 d_mod = col_b.selectbox("Día:", DIAS)
-                destinos = ["Disponible / Apoyo", "LIBRE: Planificación", "LIBRE: Coordinación"] + [f"Aula: {a['aula']}" for a in datos["aulas"]]
+                destinos = ["Disponible / Apoyo", "LIBRE: Planificación", "LIBRE: Coordinación", "LIBRE: Coordinación Proyecto"] + [f"Aula: {a['aula']}" for a in datos["aulas"]]
                 dest_mod = col_c.selectbox("Asignación:", destinos)
                 if st.button("Actualizar sesión del especialista"):
                     datos["horarios_esp"][sel][f_mod][d_mod] = dest_mod
